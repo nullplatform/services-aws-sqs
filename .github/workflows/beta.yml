@@ -1,0 +1,57 @@
+name: beta
+
+# Every same-repo pull request publishes beta/<production image>:beta-pr-<number>,
+# overwritten on each push, and deletes it when the pull request is closed or merged.
+# The beta publisher role can only write under beta/*, so a pull request can never
+# touch a production image.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+# A newer push to the same pull request supersedes the running build.
+concurrency:
+  group: beta-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  IMAGE: beta/agent-plugins/services/my-service
+
+jobs:
+  publish:
+    # Fork code must not run with push credentials, and the template repository never publishes.
+    if: ${{ github.event.action != 'closed' && !github.event.repository.is_template && github.event.pull_request.head.repo.full_name == github.repository }}
+    uses: nullplatform/actions-nullplatform/.github/workflows/docker-build-push-ecr.yml@v1
+    with:
+      image_name: beta/agent-plugins/services/my-service
+      context: .
+      tag: beta-pr-${{ github.event.pull_request.number }}
+    secrets:
+      # One beta role for every repository; the org variable overrides it if the role ever moves.
+      aws_role_arn: ${{ vars.AWS_ROLE_ARN_ECR_BETA || 'arn:aws:iam::283477532906:role/github-actions-agent-plugins-beta-publisher' }}
+
+  cleanup:
+    if: ${{ github.event.action == 'closed' && !github.event.repository.is_template && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_ECR_BETA || 'arn:aws:iam::283477532906:role/github-actions-agent-plugins-beta-publisher' }}
+          aws-region: us-east-1
+
+      - name: Delete this pull request's beta tag
+        env:
+          TAG: beta-pr-${{ github.event.pull_request.number }}
+        run: |
+          # Only this pull request's tag, never a pattern that could reach another one.
+          [[ "$TAG" =~ ^beta-pr-[0-9]+$ ]] || { echo "::error::unexpected tag '$TAG'"; exit 1; }
+          out=$(aws ecr-public batch-delete-image --region us-east-1 \
+                  --repository-name "$IMAGE" --image-ids imageTag="$TAG" --output json)
+          echo "$out" | jq -r '"deleted: \(.imageIds | length), failures: \([.failures[]?.failureCode] | join(","))"'
+          # A pull request whose build never pushed has nothing to delete.
+          if echo "$out" | jq -e '[.failures[]? | select(.failureCode != "ImageNotFound")] | length > 0' >/dev/null; then
+            echo "::error::could not delete $IMAGE:$TAG"; exit 1
+          fi
