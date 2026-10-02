@@ -30,8 +30,8 @@ jobs:
       context: .
       tag: beta-pr-${{ github.event.pull_request.number }}
     secrets:
-      # One beta role for every repository; the org variable overrides it if the role ever moves.
-      aws_role_arn: ${{ vars.AWS_ROLE_ARN_ECR_BETA || 'arn:aws:iam::283477532906:role/github-actions-agent-plugins-beta-publisher' }}
+      # One beta role for every repository: the organization secret AWS_BETA_ROLE_ARN, loaded by security (never written here).
+      aws_role_arn: ${{ secrets.AWS_BETA_ROLE_ARN }}
 
   cleanup:
     if: ${{ github.event.action == 'closed' && !github.event.repository.is_template && github.event.pull_request.head.repo.full_name == github.repository }}
@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN_ECR_BETA || 'arn:aws:iam::283477532906:role/github-actions-agent-plugins-beta-publisher' }}
+          role-to-assume: ${{ secrets.AWS_BETA_ROLE_ARN }}
           aws-region: us-east-1
 
       - name: Delete this pull request's beta tag
