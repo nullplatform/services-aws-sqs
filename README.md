@@ -112,6 +112,6 @@ After adding the **Public ECR** service to the application, set in this reposito
 | Name | Kind | Value |
 |---|---|---|
 | `AWS_ROLE_ARN_ECR_PUSH` | secret | the publisher role ARN the Public ECR service returns |
-| `NP_ARTIFACT_NRN` | variable | `organization=4` |
+| `NP_ARTIFACT_NRN` | variable | the NRN of the organization that owns the artifacts |
 
-`ARTIFACT_NP_API_KEY` comes from the organization. The release checks all three before building and fails with a clear error if one is missing. Beta images use the shared beta publisher role (override with the organization variable `AWS_ROLE_ARN_ECR_BETA`) and need the service's `beta/` repository in ECR Public: without it the push fails with `repository does not exist`. In this template repository neither workflow runs.
+`ARTIFACT_NP_API_KEY` comes from the organization. The release checks all three before building and fails with a clear error if one is missing. Beta images assume the role in the organization secret `AWS_BETA_ROLE_ARN` (no role is written in the workflow) and need the service's `beta/` repository in ECR Public: without it the push fails with `repository does not exist`. In this template repository neither workflow runs.
