@@ -1,6 +1,6 @@
 {
   "name": "My Service",
-  "slug": "my-service",
+  "slug": "sqs",
   "type": "dependency",
   "unique": false,
   "assignable_to": "any",

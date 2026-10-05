@@ -1,13 +1,13 @@
-# my-service
+# sqs
 
 Template for new nullplatform `services-*` repositories: the CI every service repo needs and the minimal structure the agent runs. Everything specific to your service is yours to add.
 
 ## Start here
 
-1. Replace `my-service` everywhere with your service slug (directory, `Dockerfile`, `mise.toml`, specs, `.github/workflows/*`):
+1. Replace `sqs` everywhere with your service slug (directory, `Dockerfile`, `mise.toml`, specs, `.github/workflows/*`):
    ```bash
-   git mv my-service <slug>
-   grep -rl my-service . --exclude-dir=.git | xargs perl -pi -e 's/my-service/<slug>/g'
+   git mv sqs <slug>
+   grep -rl sqs . --exclude-dir=.git | xargs perl -pi -e 's/sqs/<slug>/g'
    ```
    Then set the display name (`"name": "My Service"`) in `<slug>/specs/service-spec.json.tpl`.
 2. Add the **Public ECR** service to the application in nullplatform. It creates the ECR Public repository and the publisher role; then set the secret and variable in [Publishing](#publishing).
@@ -17,7 +17,7 @@ Template for new nullplatform `services-*` repositories: the CI every service re
 ## Layout
 
 ```
-my-service/
+sqs/
   entrypoint/   entrypoint (agent calls it), service and link (route an action to its workflow)
   workflows/    one YAML per action: create, update, delete, link, link-update, unlink
   scripts/      the steps the workflows run (example is a placeholder)
@@ -38,7 +38,7 @@ no publish. The two tasks in `mise.toml` are the whole contract with the CLI:
 
 | Command | Runs | Does |
 |---|---|---|
-| `np package build --image` | `mise run build:image` | Builds `my-service-worker:dev` |
+| `np package build --image` | `mise run build:image` | Builds `sqs-worker:dev` |
 | `np package run` | `mise run run` | Builds the image, then starts the local agent |
 
 Prerequisites: **Docker** with host networking (Linux as is; on Docker Desktop
@@ -57,7 +57,7 @@ eval "$(aws configure export-credentials --format env)"   # cloud credentials as
 np package run --log-level DEBUG                          # Ctrl+C to stop
 ```
 
-The agent is tagged `package:my-service` and `local:<your user>`. It receives an
+The agent is tagged `package:sqs` and `local:<your user>`. It receives an
 action only when the service's notification channel selects those tags, so
 point a channel at `local:<your user>` to route work to your machine.
 
@@ -75,7 +75,7 @@ pass `--no-forward-env` to forward nothing.
 |---|---|---|
 | `NP_API_KEY` | required | The key the agent registers with (`--api-key` also sets it) |
 | `NP_LOG_LEVEL` | `INFO` | Agent log level (`--log-level` also sets it) |
-| `NP_PACKAGE_SLUG` | `my-service` | The slug in the `package:<slug>` tag, when published under another slug |
+| `NP_PACKAGE_SLUG` | `sqs` | The slug in the `package:<slug>` tag, when published under another slug |
 | `NP_LOCAL_USER` | `$USER` | The value of the `local:<user>` tag |
 | `NP_AGENT_IMAGE` | `controlplane-agent:latest` | The agent image; needs worker rules (0.11.1+) |
 

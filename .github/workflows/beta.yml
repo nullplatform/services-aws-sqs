@@ -18,7 +18,7 @@ permissions:
   id-token: write
 
 env:
-  IMAGE: beta/agent-plugins/services/my-service
+  IMAGE: beta/agent-plugins/services/sqs
 
 jobs:
   publish:
@@ -26,7 +26,7 @@ jobs:
     if: ${{ github.event.action != 'closed' && !github.event.repository.is_template && github.event.pull_request.head.repo.full_name == github.repository }}
     uses: nullplatform/actions-nullplatform/.github/workflows/docker-build-push-ecr.yml@v1
     with:
-      image_name: beta/agent-plugins/services/my-service
+      image_name: beta/agent-plugins/services/sqs
       context: .
       tag: beta-pr-${{ github.event.pull_request.number }}
     secrets:

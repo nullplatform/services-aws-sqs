@@ -21,7 +21,7 @@ The repository starts from the `services-*` template already in this repo (`my-s
 ```
 sqs/
 ├── entrypoint/            entrypoint, service, link (from the template)
-├── workflows/aws/         create, update, delete, read, link, link-update, unlink
+├── workflows/             create, update, delete, read, link, link-update, unlink
 ├── scripts/aws/           build_context, build_permissions_context, do_tofu,
 │   │                      write_service_outputs, write_link_outputs, delete_tfstate_objects
 │   └── tests/aws/         BATS unit tests
@@ -100,7 +100,7 @@ Per link, in its own state:
 - `aws_iam_user_policy` on that user for the queue: send, receive, delete, change visibility, get attributes, get URL. With SSE-KMS it also allows `kms:GenerateDataKey` and `kms:Decrypt` on the configured key. The key's own policy must allow the user; that is the key owner's responsibility and is documented in the README.
 - `aws_iam_access_key`.
 
-`write_link_outputs` patches the link with `access_key_id`, `secret_access_key` (secret), `queue_url`, `queue_arn` and `aws_region`; it fails rather than writing credentials it cannot read, as valkey does. Applications receive them as environment variables, the secret ones as secrets.
+`write_link_outputs` patches the link with `access_key_id`, `secret_access_key` (secret) and `aws_region`. `queue_url` and `queue_arn` are exported from the service attributes. nullplatform names each exported variable `<LINK SLUG>_<ATTRIBUTE>` in upper case with hyphens removed (for example `ORDERSAPI_ACCESS_KEY_ID`); it fails rather than writing credentials it cannot read, as valkey does. Applications receive them as environment variables, the secret ones as secrets.
 
 ## Workflows
 
