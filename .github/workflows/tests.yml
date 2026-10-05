@@ -1,0 +1,20 @@
+name: tests
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  do-tofu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/do_tofu_version.sh sqs/scripts/aws/do_tofu
+
+  bats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y bats jq
+      - run: bats sqs/scripts/tests/aws/ sqs/utils/tests/

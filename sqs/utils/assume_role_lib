@@ -1,0 +1,30 @@
+#!/bin/bash
+
+arn_for_selector() {
+  local json="$1" selector="$2"
+  [ -n "$json" ] || return 0
+  [ -n "$selector" ] || return 0
+  printf '%s' "$json" | jq -r --arg sel "$selector" '
+    [ .iam_role_arns.arns[]?
+      | select(.selector == $sel)
+      | .arn ]
+    | first // ""' 2>/dev/null || true
+}
+
+resolve_assume_role_arn() {
+  local iam_json="$1" selector="$2" override_env="$3" default_env="$4" arn=""
+
+  if [ -n "$override_env" ]; then
+    arn="${!override_env:-}"
+  fi
+
+  if [ -z "$arn" ] && [ -n "$iam_json" ] && [ -n "$selector" ]; then
+    arn=$(arn_for_selector "$iam_json" "$selector")
+  fi
+
+  if [ -z "$arn" ] && [ -n "$default_env" ]; then
+    arn="${!default_env:-}"
+  fi
+
+  printf '%s' "$arn"
+}

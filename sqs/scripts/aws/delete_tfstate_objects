@@ -1,0 +1,58 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ -z "${REGION:-}" ]; then
+  echo "ERROR: REGION is not set. Expected to be exported by build_context." >&2
+  exit 1
+fi
+
+if [ -z "${TFSTATE_BUCKET:-}" ]; then
+  echo "ERROR: TFSTATE_BUCKET is not set. build_context must run before this script." >&2
+  exit 1
+fi
+
+if [ -z "${TFSTATE_KEY_PREFIX:-}" ]; then
+  echo "ERROR: TFSTATE_KEY_PREFIX is not set. build_context must run before this script." >&2
+  exit 1
+fi
+
+PREFIX="$TFSTATE_KEY_PREFIX"
+
+delete_objects() {
+  local query="$1"
+  local label="$2"
+  local objects
+  local rc=0
+
+  objects=$(aws s3api list-object-versions \
+    --bucket "$TFSTATE_BUCKET" \
+    --region "$REGION" \
+    --prefix "$PREFIX" \
+    --query "${query}" \
+    --output json) || rc=$?
+
+  if [ "$rc" -ne 0 ]; then
+    echo "WARNING: list-object-versions failed (exit $rc) for ${label}, skipping."
+    return 0
+  fi
+
+  if [ "$objects" = "null" ] || [ -z "$objects" ] || [ "$objects" = "[]" ]; then
+    echo "No ${label} to delete."
+    return 0
+  fi
+
+  echo "Deleting ${label}..."
+  local tmpfile
+  tmpfile=$(mktemp)
+  printf '{"Objects": %s, "Quiet": true}' "$objects" > "$tmpfile"
+  aws s3api delete-objects \
+    --bucket "$TFSTATE_BUCKET" \
+    --region "$REGION" \
+    --delete "file://${tmpfile}"
+  rm -f "$tmpfile"
+}
+
+echo "Deleting tofu state under s3://${TFSTATE_BUCKET}/${PREFIX}"
+delete_objects 'Versions[].{Key:Key,VersionId:VersionId}' "object versions"
+delete_objects 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' "delete markers"
+echo "State under ${PREFIX} deleted."
