@@ -34,11 +34,21 @@ referenced_files() {
 }
 
 @test "every workflow that touches AWS assumes the role first" {
-	for f in create update delete; do
+	for f in create update delete link link-update unlink; do
 		[ "$(grep -m1 'file:' "$SERVICE_PATH/workflows/$f.yaml")" = '    file: $SERVICE_PATH/utils/assume_role_step' ]
 	done
 }
 
 @test "the template placeholder script is gone" {
 	[ ! -e "$SERVICE_PATH/scripts/example" ]
+}
+
+@test "link and link-update apply and write the link outputs, unlink destroys" {
+	for action in link link-update; do
+		grep -q 'TOFU_ACTION: apply' "$SERVICE_PATH/workflows/$action.yaml"
+		grep -q 'build_permissions_context' "$SERVICE_PATH/workflows/$action.yaml"
+		grep -q 'write_link_outputs' "$SERVICE_PATH/workflows/$action.yaml"
+	done
+	grep -q 'TOFU_ACTION: destroy' "$SERVICE_PATH/workflows/unlink.yaml"
+	! grep -q 'write_link_outputs' "$SERVICE_PATH/workflows/unlink.yaml"
 }
