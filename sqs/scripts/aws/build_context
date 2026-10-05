@@ -1,0 +1,237 @@
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=sqs_lib
+source "$SCRIPT_DIR/sqs_lib"
+
+yaml_value() {
+  local key="$1" default="$2" file="$3"
+  local val
+  val=$(grep "^${key}:" "$file" 2>/dev/null | sed 's/^[^:]*: *//;s/^"//;s/"$//' | head -1)
+  echo "${val:-$default}"
+}
+
+short_name() {
+  local input="$1" max_len="$2"
+  echo "$input" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-"$max_len" | sed 's/^-*//;s/-*$//'
+}
+
+resource_name() {
+  local label="$1" id="$2" max_label_len="$3" suffix="${4:-}"
+  local short
+  short=$(short_name "$label" "$max_label_len")
+  echo "np-${short:+${short}-}${id:0:5}${suffix}"
+}
+
+resolve_region() {
+  local from_attrs="$1" account_nrn="$2"
+  if [ -n "$from_attrs" ]; then
+    echo "$from_attrs"
+    return 0
+  fi
+
+  if [ -z "$account_nrn" ]; then
+    echo "ERROR: could not derive account NRN from .service.nrn in context" >&2
+    return 1
+  fi
+
+  echo "Resolving region for account: ${account_nrn}" >&2
+
+  local providers provider_id provider_data region
+  providers=$(np provider list --nrn "$account_nrn" --format json --limit 100)
+  provider_id=$(echo "$providers" \
+    | jq -r '[(.results // [])[] | select((.data_source.stored_keys // []) | contains(["account.region"]))] | first | .id // ""')
+
+  if [ -z "$provider_id" ] || [ "$provider_id" = "null" ]; then
+    echo "ERROR: no account provider with account.region found for ${account_nrn}" >&2
+    return 1
+  fi
+
+  provider_data=$(np provider read --id "$provider_id" --format json)
+  region=$(echo "$provider_data" | jq -r '.attributes.account.region // ""')
+
+  if [ -z "$region" ]; then
+    echo "ERROR: account.region not found in provider ${provider_id}" >&2
+    return 1
+  fi
+
+  echo "$region"
+}
+
+require_state_bucket() {
+  local region="$1"
+
+  if [ -z "${SQS_S3_STATE_BUCKET:-}" ]; then
+    echo "ERROR: SQS_S3_STATE_BUCKET is not set." >&2
+    echo "  The agent must provide the name of the S3 bucket holding the tofu state." >&2
+    exit 1
+  fi
+
+  if ! aws s3api head-bucket --bucket "$SQS_S3_STATE_BUCKET" --region "$region" >/dev/null 2>&1; then
+    echo "ERROR: the state bucket ${SQS_S3_STATE_BUCKET} does not exist or is not reachable from ${region}." >&2
+    exit 1
+  fi
+
+  echo "Using state bucket: ${SQS_S3_STATE_BUCKET}"
+}
+
+attr() {
+  echo "$SERVICE_ATTRS" | jq -r --arg key "$1" --arg default "${2:-}" \
+    'if .[$key] == null or .[$key] == "" then $default else (.[$key] | tostring) end'
+}
+
+resolve_queue_name() {
+  local existing
+  existing=$(echo "$CONTEXT" | jq -r '.service.attributes.queue_name // ""')
+  if [ -n "$existing" ]; then
+    echo "Using existing queue_name from service attributes: ${existing}" >&2
+    echo "$existing"
+    return 0
+  fi
+  if [ "${ACTION_SOURCE:-}" = "link" ]; then
+    echo "ERROR: the service has no queue_name attribute yet." >&2
+    echo "  The queue must be created before a link can be established." >&2
+    return 1
+  fi
+  sqs_queue_name "$(attr queue_type standard)" "$(attr name)"
+}
+
+write_queue_tfvars() {
+  local fifo=false
+  if [[ "$QUEUE_NAME" == *.fifo ]]; then
+    fifo=true
+  fi
+
+  local visibility retention delay max_size_kib wait
+  visibility=$(sqs_to_seconds "visibility timeout" "$(attr visibility_timeout_value 30)" "$(attr visibility_timeout_unit seconds)" 0 43200 "seconds minutes hours")
+  retention=$(sqs_to_seconds "message retention period" "$(attr message_retention_value 4)" "$(attr message_retention_unit days)" 60 1209600 "seconds minutes hours days")
+  delay=$(sqs_to_seconds "delivery delay" "$(attr delivery_delay_value 0)" "$(attr delivery_delay_unit seconds)" 0 900 "seconds minutes")
+  max_size_kib=$(sqs_whole_number "maximum message size (KiB)" "$(attr max_message_size_kib 1024)" 1 1024)
+  wait=$(sqs_whole_number "receive message wait time (seconds)" "$(attr receive_wait_time_seconds 0)" 0 20)
+
+  local key_type kms_arn="" key_reuse=300
+  key_type=$(attr encryption_key_type sse-sqs)
+  case "$key_type" in
+    sse-sqs) ;;
+    sse-kms)
+      kms_arn=$(attr kms_key_arn)
+      sqs_require_kms_arn "$kms_arn"
+      key_reuse=$(sqs_to_seconds "data key reuse period" "$(attr data_key_reuse_value 5)" "$(attr data_key_reuse_unit minutes)" 60 86400 "minutes hours")
+      ;;
+    *)
+      echo "ERROR: encryption_key_type must be sse-sqs or sse-kms, got '${key_type}'" >&2
+      return 1
+      ;;
+  esac
+
+  local send_principals receive_principals
+  send_principals=$(sqs_access_principals send "$(attr send_access owner)" "$(attr send_principals)")
+  receive_principals=$(sqs_access_principals receive "$(attr receive_access owner)" "$(attr receive_principals)")
+
+  local redrive_allow redrive_sources='[]'
+  redrive_allow=$(attr redrive_allow disabled)
+  case "$redrive_allow" in
+    disabled | allow_all | deny_all) ;;
+    by_queue) redrive_sources=$(sqs_parse_queue_arns "redrive_source_queues" "$(attr redrive_source_queues)") ;;
+    *)
+      echo "ERROR: redrive_allow must be disabled, allow_all, by_queue or deny_all, got '${redrive_allow}'" >&2
+      return 1
+      ;;
+  esac
+
+  local dlq_arn="" dlq_max_receives=10
+  if [ "$(attr dlq_enabled disabled)" = "enabled" ]; then
+    dlq_arn=$(attr dlq_arn)
+    sqs_require_queue_arn "dead-letter queue ARN" "$dlq_arn"
+    sqs_require_matching_dlq "$fifo" "$dlq_arn"
+    dlq_max_receives=$(sqs_whole_number "maximum receives" "$(attr dlq_max_receives 10)" 1 1000)
+  fi
+
+  local user_tags platform_tags tags
+  user_tags=$(sqs_user_tags_json "$(echo "$SERVICE_ATTRS" | jq -c '.tags // []')")
+  platform_tags=$(echo "$CONTEXT" | jq -c '(.tags // {}) | with_entries(select(.value | type == "string"))')
+  tags=$(jq -cn --argjson user "$user_tags" --argjson platform "$platform_tags" '$user + $platform')
+
+  jq -n \
+    --arg service_id "$SERVICE_ID" \
+    --arg region "$REGION" \
+    --arg queue_name "$QUEUE_NAME" \
+    --argjson fifo "$fifo" \
+    --argjson tags "$tags" \
+    --argjson visibility "$visibility" \
+    --argjson retention "$retention" \
+    --argjson delay "$delay" \
+    --argjson max_size_bytes "$((max_size_kib * 1024))" \
+    --argjson wait "$wait" \
+    --arg key_type "$key_type" \
+    --arg kms_arn "$kms_arn" \
+    --argjson key_reuse "$key_reuse" \
+    --argjson send_principals "$send_principals" \
+    --argjson receive_principals "$receive_principals" \
+    --arg redrive_allow "$redrive_allow" \
+    --argjson redrive_sources "$redrive_sources" \
+    --arg dlq_arn "$dlq_arn" \
+    --argjson dlq_max_receives "$dlq_max_receives" \
+    '{
+      service_id: $service_id,
+      region: $region,
+      queue_name: $queue_name,
+      fifo: $fifo,
+      tags: $tags,
+      visibility_timeout_seconds: $visibility,
+      message_retention_seconds: $retention,
+      delay_seconds: $delay,
+      max_message_size_bytes: $max_size_bytes,
+      receive_wait_time_seconds: $wait,
+      encryption_key_type: $key_type,
+      kms_key_arn: $kms_arn,
+      kms_data_key_reuse_seconds: $key_reuse,
+      send_principals: $send_principals,
+      receive_principals: $receive_principals,
+      redrive_allow: $redrive_allow,
+      redrive_source_queue_arns: $redrive_sources,
+      dlq_arn: $dlq_arn,
+      dlq_max_receives: $dlq_max_receives
+    }' > "$OUTPUT_DIR/terraform.tfvars.json"
+}
+
+SERVICE_ID=$(echo "$CONTEXT" | jq -r '.service.id')
+SERVICE_ATTRS=$(echo "$CONTEXT" | jq -c '(.service.attributes // {}) * (.parameters // {})')
+export SERVICE_ID
+
+AWS_PROFILE_VAL=$(yaml_value "aws_profile" "" "$VALUES")
+if [ -n "$AWS_PROFILE_VAL" ]; then
+  export AWS_PROFILE="$AWS_PROFILE_VAL"
+fi
+
+ACCOUNT_NRN=$(echo "$CONTEXT" | jq -r '.service.nrn // .entity_nrn // ""' | sed 's/:namespace=.*$//')
+REGION=$(resolve_region "$(echo "$SERVICE_ATTRS" | jq -r '.aws_region // ""')" "$ACCOUNT_NRN")
+echo "Using region: ${REGION}"
+export REGION
+
+require_state_bucket "$REGION"
+TFSTATE_BUCKET="$SQS_S3_STATE_BUCKET"
+TFSTATE_KEY_PREFIX="services/sqs/${SERVICE_ID}/"
+export TFSTATE_BUCKET TFSTATE_KEY_PREFIX
+echo "Using state prefix: ${TFSTATE_KEY_PREFIX}"
+
+QUEUE_NAME=$(resolve_queue_name)
+export QUEUE_NAME
+
+export OUTPUT_DIR="/tmp/np-service-${SERVICE_ID}"
+mkdir -p "$OUTPUT_DIR"
+
+if [ "${ACTION_SOURCE:-}" = "link" ]; then
+  LINK_ID=$(echo "$CONTEXT" | jq -r '.link.id // ""')
+  LINK_LABEL=$(echo "$CONTEXT" | jq -r '.link.slug // .link.name // ""')
+  LINK_USER_NAME=$(resource_name "$LINK_LABEL" "$LINK_ID" 26 "-user")
+  echo "Link user name: ${LINK_USER_NAME}"
+  export LINK_ID LINK_USER_NAME
+else
+  write_queue_tfvars
+
+  export TOFU_MODULE_DIR="$SERVICE_PATH/deployment"
+  export TOFU_INIT_VARIABLES="-backend-config=bucket=${TFSTATE_BUCKET} -backend-config=key=${TFSTATE_KEY_PREFIX}terraform.tfstate -backend-config=region=${REGION} -backend-config=use_lockfile=true"
+  export TOFU_VARIABLES="-var-file=${OUTPUT_DIR}/terraform.tfvars.json"
+fi
