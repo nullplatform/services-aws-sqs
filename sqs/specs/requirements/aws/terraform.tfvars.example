@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars and fill in. Optional variables are commented out at their defaults.
+
+cluster_name      = "<nullplatform agent cluster>"
+state_bucket_name = "<existing S3 bucket for the tofu state>"
+
+# region                     = "us-east-1"
+# agent_role_arn             = ""
+# additional_agent_role_arns = []
+# role_name                  = ""
+# policies_name_prefix       = ""
+# resource_name_prefix       = "np-"
+# kms_key_arns               = ["*"]
+# iam_create_role            = true
+# iam_resource_tags_json     = {}
