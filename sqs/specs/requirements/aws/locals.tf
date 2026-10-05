@@ -74,19 +74,12 @@ locals {
       Version = "2012-10-17"
       Statement = [
         {
-          Sid      = "StateBucketLocation"
+          # No prefix condition on purpose: HeadBucket (build_context) sends no prefix, and the
+          # S3 backend lists env:/ to find workspaces. Object access below stays under services/sqs/.
+          Sid      = "ListStateBucket"
           Effect   = "Allow"
-          Action   = ["s3:GetBucketLocation"]
+          Action   = ["s3:ListBucket", "s3:ListBucketVersions", "s3:GetBucketLocation"]
           Resource = "arn:aws:s3:::${var.state_bucket_name}"
-        },
-        {
-          Sid      = "ListStatePrefix"
-          Effect   = "Allow"
-          Action   = ["s3:ListBucket", "s3:ListBucketVersions"]
-          Resource = "arn:aws:s3:::${var.state_bucket_name}"
-          Condition = {
-            StringLike = { "s3:prefix" = ["services/sqs/*"] }
-          }
         },
         {
           Sid    = "ManageStateObjects"

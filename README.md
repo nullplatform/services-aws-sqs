@@ -91,6 +91,8 @@ Map them to the standard names your SDK reads (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_
 
 An SSE-KMS queue also needs the key policy of your key to allow the link user (`kms:GenerateDataKey`, `kms:Decrypt`).
 
+A link's KMS permissions are computed when the link is created or updated, not when the queue is. After you switch a queue to SSE-KMS or change its `kms_key_arn`, run a link update on each link of that queue (or recreate it), otherwise its application gets `AccessDenied` from KMS until you do.
+
 ## Local testing
 
 Set `aws_profile` in `values.yaml`, run `aws sso login --profile <name>`, and start the agent with `np package run` (below). With no IAM provider configured, the service runs on that profile's credentials.

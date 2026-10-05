@@ -374,3 +374,30 @@ with_params() {
 	[ "$status" -ne 0 ]
 	assert_contains "$captured_stderr" "ERROR: the service has no queue_name attribute yet."
 }
+
+@test "deleting a service does not re-validate the form, so a service whose saved settings are invalid can still be deleted" {
+	export SERVICE_ACTION_TYPE=delete
+	CONTEXT=$(service_context '{"queue_name":"np-orders","message_retention_value":1,"message_retention_unit":"seconds","send_access":"principals","send_principals":"bob"}' '{"aws_region":"us-west-2"}')
+	run_script build_context
+	[ "$status" -eq 0 ]
+	assert_equal "$(tfvar queue_name)" "np-orders"
+	assert_equal "$(tfvar fifo)" "false"
+	assert_equal "$(tfvar region)" "us-west-2"
+	assert_equal "$(captured TOFU_MODULE_DIR)" "$SERVICE_PATH/deployment"
+}
+
+@test "deleting a FIFO service keeps its fifo flag so destroy matches the queue name" {
+	export SERVICE_ACTION_TYPE=delete
+	CONTEXT=$(service_context '{"queue_name":"np-orders.fifo"}' '{"aws_region":"us-west-2"}')
+	run_script build_context
+	[ "$status" -eq 0 ]
+	assert_equal "$(tfvar fifo)" "true"
+}
+
+@test "creating or updating still validates the form" {
+	export SERVICE_ACTION_TYPE=update
+	with_params '.parameters += {message_retention_value: 30, message_retention_unit: "seconds"}'
+	run_script build_context
+	[ "$status" -ne 0 ]
+	assert_contains "$captured_stderr" "ERROR: message retention period must be between 60 and 1209600 seconds"
+}

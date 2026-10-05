@@ -97,6 +97,23 @@ resolve_queue_name() {
   sqs_queue_name "$(attr queue_type standard)" "$(attr name)"
 }
 
+# Destroy only needs the queue's identity. Skipping the form checks lets a service whose saved
+# settings are invalid (for example after a failed create) still be deleted.
+write_destroy_tfvars() {
+  local fifo=false
+  if [[ "$QUEUE_NAME" == *.fifo ]]; then
+    fifo=true
+  fi
+
+  jq -n \
+    --arg service_id "$SERVICE_ID" \
+    --arg region "$REGION" \
+    --arg queue_name "$QUEUE_NAME" \
+    --argjson fifo "$fifo" \
+    '{service_id: $service_id, region: $region, queue_name: $queue_name, fifo: $fifo}' \
+    > "$OUTPUT_DIR/terraform.tfvars.json"
+}
+
 write_queue_tfvars() {
   local fifo=false
   if [[ "$QUEUE_NAME" == *.fifo ]]; then
@@ -229,7 +246,11 @@ if [ "${ACTION_SOURCE:-}" = "link" ]; then
   echo "Link user name: ${LINK_USER_NAME}"
   export LINK_ID LINK_USER_NAME
 else
-  write_queue_tfvars
+  if [ "${SERVICE_ACTION_TYPE:-}" = "delete" ]; then
+    write_destroy_tfvars
+  else
+    write_queue_tfvars
+  fi
 
   export TOFU_MODULE_DIR="$SERVICE_PATH/deployment"
   export TOFU_INIT_VARIABLES="-backend-config=bucket=${TFSTATE_BUCKET} -backend-config=key=${TFSTATE_KEY_PREFIX}terraform.tfstate -backend-config=region=${REGION} -backend-config=use_lockfile=true"
