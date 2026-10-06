@@ -401,3 +401,50 @@ with_params() {
 	[ "$status" -ne 0 ]
 	assert_contains "$captured_stderr" "ERROR: message retention period must be between 60 and 1209600 seconds"
 }
+
+@test "creating a queue whose name is already taken in the region fails with a clear message" {
+	export SERVICE_ACTION_TYPE=create
+	export MOCK_EXISTING_QUEUE_TAGS='{"managed-by":"nullplatform","service-id":"11111111-2222-3333-4444-555555555555"}'
+	run_script build_context
+	[ "$status" -ne 0 ]
+	assert_contains "$captured_stderr" "ERROR: a queue named np-orders already exists in us-west-2 (it belongs to service 11111111-2222-3333-4444-555555555555)."
+	assert_contains "$captured_stderr" "Queue names are unique per account and region: choose another name."
+	assert_contains "$(cat "$MOCK_LOG")" "aws sqs get-queue-url --queue-name np-orders --region us-west-2"
+
+	export MOCK_EXISTING_QUEUE_TAGS='{}'
+	run_script build_context
+	[ "$status" -ne 0 ]
+	assert_contains "$captured_stderr" "ERROR: a queue named np-orders already exists in us-west-2."
+}
+
+@test "creating a queue goes ahead when the name is free or the queue already belongs to this service" {
+	export SERVICE_ACTION_TYPE=create
+	run_script build_context
+	[ "$status" -eq 0 ]
+	assert_equal "$(tfvar queue_name)" "np-orders"
+
+	export MOCK_EXISTING_QUEUE_TAGS='{"service-id":"0f3a6b1e-9c2d-4e8f-a1b2-c3d4e5f60718"}'
+	run_script build_context
+	[ "$status" -eq 0 ]
+	assert_not_contains "$captured_stderr" "ERROR"
+}
+
+@test "creating a queue warns and goes ahead when the name cannot be checked" {
+	export SERVICE_ACTION_TYPE=create
+	export MOCK_GET_QUEUE_URL_ERROR="An error occurred (AccessDenied) when calling the GetQueueUrl operation: denied"
+	run_script build_context
+	[ "$status" -eq 0 ]
+	assert_contains "$captured_stderr" "WARNING: could not check whether np-orders already exists"
+	assert_contains "$captured_stderr" "AccessDenied"
+}
+
+@test "only create checks the name: update, delete and link never look the queue up" {
+	for type in update delete; do
+		export SERVICE_ACTION_TYPE=$type
+		CONTEXT=$(service_context '{"queue_name":"np-orders"}' "$(full_params)")
+		export MOCK_EXISTING_QUEUE_TAGS='{"service-id":"someone-else"}'
+		run_script build_context
+		[ "$status" -eq 0 ]
+		assert_not_contains "$(cat "$MOCK_LOG")" "get-queue-url"
+	done
+}

@@ -97,6 +97,27 @@ resolve_queue_name() {
   sqs_queue_name "$(attr queue_type standard)" "$(attr name)"
 }
 
+# A taken name makes CreateQueue fail with an AWS error that does not say what to do
+# ("QueueAlreadyExists ... different value for attribute ..."). A queue tagged with this
+# service's ID is its own, from an earlier run of this create, so it is not a conflict.
+require_free_queue_name() {
+  local url owner err_file="$OUTPUT_DIR/get-queue-url.err"
+
+  if url=$(aws sqs get-queue-url --queue-name "$QUEUE_NAME" --region "$REGION" --query QueueUrl --output text 2>"$err_file"); then
+    owner=$(aws sqs list-queue-tags --queue-url "$url" --region "$REGION" --output json | jq -r '.Tags["service-id"] // ""')
+    if [ "$owner" != "$SERVICE_ID" ]; then
+      echo "ERROR: a queue named ${QUEUE_NAME} already exists in ${REGION}${owner:+ (it belongs to service ${owner})}." >&2
+      echo "  Queue names are unique per account and region: choose another name." >&2
+      return 1
+    fi
+    return 0
+  fi
+
+  if ! grep -qE 'NonExistentQueue|QueueDoesNotExist' "$err_file"; then
+    echo "WARNING: could not check whether ${QUEUE_NAME} already exists: $(cat "$err_file")" >&2
+  fi
+}
+
 # Destroy only needs the queue's identity. Skipping the form checks lets a service whose saved
 # settings are invalid (for example after a failed create) still be deleted.
 write_destroy_tfvars() {
@@ -250,6 +271,9 @@ else
     write_destroy_tfvars
   else
     write_queue_tfvars
+    if [ "${SERVICE_ACTION_TYPE:-}" = "create" ]; then
+      require_free_queue_name
+    fi
   fi
 
   export TOFU_MODULE_DIR="$SERVICE_PATH/deployment"

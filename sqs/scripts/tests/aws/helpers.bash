@@ -29,6 +29,14 @@ case "$*" in
 		[ "$MOCK_BUCKET_EXISTS" = "0" ] && printf '{\n    "BucketArn": "arn:aws:s3:::b",\n    "BucketRegion": "us-east-1",\n    "AccessPointAlias": false\n}\n'
 		exit "$MOCK_BUCKET_EXISTS" ;;
 	*"s3api list-object-versions"*) echo "$MOCK_LIST_VERSIONS" ;;
+	*"sqs get-queue-url"*)
+		if [ -n "${MOCK_GET_QUEUE_URL_ERROR:-}" ]; then echo "$MOCK_GET_QUEUE_URL_ERROR" >&2; exit 254; fi
+		if [ -z "${MOCK_EXISTING_QUEUE_TAGS:-}" ]; then
+			echo "An error occurred (AWS.SimpleQueueService.NonExistentQueue) when calling the GetQueueUrl operation: The specified queue does not exist." >&2
+			exit 254
+		fi
+		echo "https://sqs.us-west-2.amazonaws.com/123456789012/existing" ;;
+	*"sqs list-queue-tags"*) echo "{\"Tags\": $MOCK_EXISTING_QUEUE_TAGS}" ;;
 	*"s3api delete-objects"*)
 		for arg in "$@"; do
 			case "$arg" in file://*) [ -f "${arg#file://}" ] || { echo "missing delete file" >&2; exit 1; } ;; esac
