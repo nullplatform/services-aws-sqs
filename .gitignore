@@ -4,7 +4,6 @@
 *.tfplan
 .env
 .DS_Store
-.superpowers/
 
 # Registration variables carry the API key and your NRN
 *.tfvars
