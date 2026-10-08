@@ -1,25 +1,22 @@
 name: beta
 
-# Publishes a beta image from a `beta/**` branch. To try a change as a published image before
-# it reaches main, push it to a branch named beta/<anything>:
+# Publishes a beta image from every pull request of this repository: when it is
+# opened, on each push and when it is reopened. publish-test-image-oci builds the
+# pull request head, pushes it to the image's `beta/` repository as
+# test-<branch>-<short sha> and registers it as a nullplatform oci_image artifact,
+# so the service can be tried on a test scope before the merge.
 #
-#   git push origin HEAD:beta/<name>
-#
-# publish-test-image-oci builds the image, pushes it to the service's `beta/` repository as
-# test-beta-<name>-<short sha> and registers it as a nullplatform oci_image artifact, so the
-# beta can be deployed to a test scope from the platform. Only pushes to beta/** branches can
-# assume the beta role (its trust requires that branch prefix; a pull_request token carries no
-# branch in its sub), and the role can only write under beta/*, so a beta can never overwrite a
-# released image. Nothing deletes beta tags: they are ephemeral by convention, and the SHA in
-# the tag keeps two branches from overwriting each other by accident.
+# The beta role trusts the `pull_request` sub of the services-*/scopes*
+# repositories and can only write under beta/*, so a beta can never overwrite a
+# released image. Every published image already has its beta/ repository (the
+# dispatcher creates it with the image). Nothing deletes beta tags.
 on:
-  push:
-    branches:
-      - 'beta/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
 
-# A newer push to the same branch supersedes the running build.
+# A newer push to the same pull request supersedes the running build.
 concurrency:
-  group: beta-${{ github.ref }}
+  group: beta-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -28,12 +25,17 @@ permissions:
 
 jobs:
   beta:
-    # The template repository never publishes.
-    if: ${{ !github.event.repository.is_template }}
+    # The template repository never publishes. Fork pull requests get no OIDC token
+    # nor secrets, and dependency bots are skipped: Dependabot gets no secrets and
+    # Renovate would publish a beta for every bump.
+    if: >-
+      ${{ !github.event.repository.is_template &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.user.type != 'Bot' }}
     uses: nullplatform/actions-nullplatform/.github/workflows/publish-test-image-oci.yml@v1
     with:
+      # Always `beta/` + the image_name in release.yml.
       image_name: beta/agent-plugins/services/my-service
     secrets:
-      # One beta role for every repository; the organization variable overrides it if the role ever moves.
       aws_role_arn: ${{ secrets.AWS_BETA_ROLE_ARN }}
       artifact_np_api_key: ${{ secrets.ARTIFACT_NP_API_KEY }}
