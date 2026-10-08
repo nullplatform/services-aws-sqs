@@ -28,7 +28,7 @@ jobs:
           tofu_version: 1.12.6
       - run: |
           set -e
-          for dir in sqs/deployment sqs/permissions sqs/specs/requirements/aws; do
+          for dir in sqs/deployment sqs/permissions sqs/specs/requirements/aws sqs/specs/install; do
             tofu fmt -check "$dir"
             tofu -chdir="$dir" init -backend=false -input=false
             tofu -chdir="$dir" validate

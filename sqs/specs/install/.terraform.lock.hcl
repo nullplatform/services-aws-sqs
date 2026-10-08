@@ -40,7 +40,7 @@ provider "registry.opentofu.org/hashicorp/http" {
 
 provider "registry.opentofu.org/nullplatform/nullplatform" {
   version     = "0.0.105"
-  constraints = ">= 0.0.104"
+  constraints = "~> 0.0.86, >= 0.0.104, < 0.1.0"
   hashes = [
     "h1:5aKXPMfNV4qvBlV0xgOBNASDvii+MS60csJpvhhbBCA=",
     "h1:Hh9Okj8w7qCppjSCbiS9CvRNn/iJTUyvyoQQiuyS2tM=",

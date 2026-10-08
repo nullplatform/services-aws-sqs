@@ -28,7 +28,8 @@ sqs/
 ├── specs/
 │   ├── service-spec.json.tpl      # the form the developer sees
 │   ├── links/connect.json.tpl
-│   └── requirements/aws/          # IAM role the agent assumes
+│   ├── requirements/aws/          # IAM role the agent assumes
+│   └── install/                   # registers the service and routes its actions to an agent
 ├── deployment/                    # the queue, its policy and redrive policies
 ├── permissions/                   # link: IAM user, policy and access key
 ├── scripts/aws/                   # sqs_lib, context building, tofu execution, outputs
@@ -37,8 +38,6 @@ sqs/
 ├── entrypoint/                    # action routing
 ├── workflows/                     # one file per action
 └── values.yaml                    # static config, not exposed in the UI
-nullplatform/                      # registers the service definition
-nullplatform-bindings/             # routes notifications to an agent
 ```
 
 ## Installation
@@ -63,7 +62,19 @@ Each service keeps its state under `services/sqs/<service id>/terraform.tfstate`
 
 **4. Region.** The region comes from the account configuration (`aws.region`) or the account provider.
 
-**5. Register the service.** Apply `nullplatform/` (service definition) and then `nullplatform-bindings/` (agent channel). Copy each `terraform.tfvars.example` to `terraform.tfvars` first; `*.tfvars` are git-ignored.
+**5. Register the service.** Apply `sqs/specs/install`. It registers the service and link specifications and the notification channel that routes their actions to the agents matching `agent_tags_selectors`:
+
+```hcl
+module "sqs_install" {
+  source               = "git::https://github.com/nullplatform/services-aws-sqs.git//sqs/specs/install?ref=<tag>"
+  nrn                  = "organization=<id>:account=<id>"
+  api_key              = "<nullplatform api key>"
+  repository_branch    = "<tag>"
+  agent_tags_selectors = { service = "aws-sqs" }
+}
+```
+
+`repository_branch` must be a tag or commit SHA, never a moving branch. To test local changes, set `git_provider = "local"`, `local_specs_path` to this repository's `sqs/` directory and `base_clone_path = "~/.np"`; the specs are then read from disk. To apply it as a root module, copy `terraform.tfvars.example` to `terraform.tfvars` first; `*.tfvars` are git-ignored.
 
 ## How it works
 
@@ -77,15 +88,15 @@ Each link user is named `np-<link slug>-<first 5 characters of the link id>-user
 
 ## Connecting
 
-nullplatform names each exported variable `<LINK SLUG>_<ATTRIBUTE>` in upper case, with hyphens removed. For a link whose slug is `orders-api`:
+nullplatform creates these variables as parameters of the linked application when the link is created, and removes them when it is deleted. Each name is the service name in upper case, with hyphens turned into underscores, followed by the attribute. For a service named `orders-queue`:
 
 | Variable | From | |
 | :---- | :---- | :---- |
-| `ORDERSAPI_QUEUE_URL` | service | Queue URL |
-| `ORDERSAPI_QUEUE_ARN` | service | Queue ARN |
-| `ORDERSAPI_AWS_REGION` | link | Region of the queue |
-| `ORDERSAPI_ACCESS_KEY_ID` | link | Access key of the link's IAM user |
-| `ORDERSAPI_SECRET_ACCESS_KEY` | link | secret |
+| `ORDERS_QUEUE_QUEUE_URL` | service | Queue URL |
+| `ORDERS_QUEUE_QUEUE_ARN` | service | Queue ARN |
+| `ORDERS_QUEUE_AWS_REGION` | link | Region of the queue |
+| `ORDERS_QUEUE_ACCESS_KEY_ID` | link | Access key of the link's IAM user |
+| `ORDERS_QUEUE_SECRET_ACCESS_KEY` | link | secret |
 
 Map them to the standard names your SDK reads (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`) and send to the queue URL.
 

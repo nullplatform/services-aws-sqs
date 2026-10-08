@@ -1,3 +1,0 @@
-np_api_key           = "<nullplatform API key>"
-nrn                  = "organization=<id>:account=<id>:namespace=<id>"
-agent_tags_selectors = { local = "<your user>" }

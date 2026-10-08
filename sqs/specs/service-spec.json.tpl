@@ -324,12 +324,13 @@
         "redrive_allow": {
           "type": "string",
           "title": "Redrive allow policy",
+          "description": "Which source queues can use this queue as their dead-letter queue. Allow all: any queue in the same account and region. By queue: only the queues you list. Deny all: none.",
           "default": "disabled",
           "oneOf": [
             { "const": "disabled", "title": "Disabled" },
-            { "const": "allow_all", "title": "Allow all source queues from the same account and region to use this queue as their dead-letter queue" },
-            { "const": "by_queue", "title": "By queue: only the source queues you list" },
-            { "const": "deny_all", "title": "Deny all source queues" }
+            { "const": "allow_all", "title": "Allow all" },
+            { "const": "by_queue", "title": "By queue" },
+            { "const": "deny_all", "title": "Deny all" }
           ],
           "editableOn": ["create", "update"],
           "order": 20
