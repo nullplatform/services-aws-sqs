@@ -174,9 +174,9 @@ it: the release publishes the image and registers the artifact.
 | branch-validation | PR | branch named `feat/…`, `fix/…`, `chore/…` |
 | conventional-commit | PR | commit messages (release-please reads them) |
 | shellcheck | PR | every bash script |
-| tests | PR | BATS unit tests, `do_tofu` version pin, and `tofu validate` of the three modules |
+| tests | PR | BATS unit tests, `do_tofu` version pin, and `tofu validate` of the four modules |
 | trivy | PR | IaC misconfiguration and image scan, to the Security tab |
-| beta | same-repo PR | pushes `beta/<image>:beta-pr-<number>` on each push, deletes it when the PR closes |
+| beta | push to `beta/**` | builds the image, pushes `beta/<image>:test-beta-<name>-<short sha>` and registers it as a nullplatform artifact |
 | release | push to `main` | release-please → build and push `vX.Y.Z` and `latest` to ECR Public → nullplatform artifact → GitHub release |
 | auto-merge-release | after release | merges the release PR |
 | dependabot | daily / weekly | base image and shared workflow bumps |
@@ -187,9 +187,9 @@ it: the release publishes the image and registers the artifact.
 |---|---|---|
 | `agent-plugins/services/<name>:vX.Y.Z` | its release, once | pin an exact version |
 | `agent-plugins/services/<name>:latest` | each release | follow the last released version |
-| `beta/agent-plugins/services/<name>:beta-pr-<number>` | each push to that pull request; deleted when it closes | try a pull request before merging it |
+| `beta/agent-plugins/services/<name>:test-beta-<name>-<short sha>` | each push to a `beta/<name>` branch | try a change on a test scope before merging it |
 
-Beta images live in a separate repository that the beta role can write and the production role cannot, so a pull request can never overwrite a released image. Open pull requests don't collide: each has its own tag.
+Beta images live in a separate repository that the beta role can write and the production role cannot, so a beta can never overwrite a released image. Publish one with `git push origin HEAD:beta/<name>`; the short SHA in the tag keeps two branches from overwriting each other.
 
 ## Publishing
 
@@ -198,6 +198,6 @@ After adding the **Public ECR** service to the application, set in this reposito
 | Name | Kind | Value |
 |---|---|---|
 | `AWS_ROLE_ARN_ECR_PUSH` | secret | the publisher role ARN the Public ECR service returns |
-| `NP_ARTIFACT_NRN` | variable | `organization=4` |
+| `NP_ARTIFACT_NRN` | variable | the NRN of the organization that owns the artifacts |
 
-`ARTIFACT_NP_API_KEY` comes from the organization. The release checks all three before building and fails with a clear error if one is missing. Beta images use the shared beta publisher role (override with the organization variable `AWS_ROLE_ARN_ECR_BETA`) and need the service's `beta/` repository in ECR Public: without it the push fails with `repository does not exist`. In this template repository neither workflow runs.
+`ARTIFACT_NP_API_KEY` comes from the organization. The release checks all three before building and fails with a clear error if one is missing. Beta images assume the role in the organization secret `AWS_BETA_ROLE_ARN` (no role is written in the workflow) and need the service's `beta/` repository in ECR Public: without it the push fails with `repository does not exist`. In this template repository neither workflow runs.

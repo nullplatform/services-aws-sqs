@@ -1,57 +1,39 @@
 name: beta
 
-# Every same-repo pull request publishes beta/<production image>:beta-pr-<number>,
-# overwritten on each push, and deletes it when the pull request is closed or merged.
-# The beta publisher role can only write under beta/*, so a pull request can never
-# touch a production image.
+# Publishes a beta image from a `beta/**` branch. To try a change as a published image before
+# it reaches main, push it to a branch named beta/<anything>:
+#
+#   git push origin HEAD:beta/<name>
+#
+# publish-test-image-oci builds the image, pushes it to the service's `beta/` repository as
+# test-beta-<name>-<short sha> and registers it as a nullplatform oci_image artifact, so the
+# beta can be deployed to a test scope from the platform. Only pushes to beta/** branches can
+# assume the beta role (its trust requires that branch prefix; a pull_request token carries no
+# branch in its sub), and the role can only write under beta/*, so a beta can never overwrite a
+# released image. Nothing deletes beta tags: they are ephemeral by convention, and the SHA in
+# the tag keeps two branches from overwriting each other by accident.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
+  push:
+    branches:
+      - 'beta/**'
 
-# A newer push to the same pull request supersedes the running build.
+# A newer push to the same branch supersedes the running build.
 concurrency:
-  group: beta-${{ github.event.pull_request.number }}
+  group: beta-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
   id-token: write
 
-env:
-  IMAGE: beta/agent-plugins/services/sqs
-
 jobs:
-  publish:
-    # Fork code must not run with push credentials, and the template repository never publishes.
-    if: ${{ github.event.action != 'closed' && !github.event.repository.is_template && github.event.pull_request.head.repo.full_name == github.repository }}
-    uses: nullplatform/actions-nullplatform/.github/workflows/docker-build-push-ecr.yml@v1
+  beta:
+    # The template repository never publishes.
+    if: ${{ !github.event.repository.is_template }}
+    uses: nullplatform/actions-nullplatform/.github/workflows/publish-test-image-oci.yml@v1
     with:
       image_name: beta/agent-plugins/services/sqs
-      context: .
-      tag: beta-pr-${{ github.event.pull_request.number }}
     secrets:
-      # One beta role for every repository; the org variable overrides it if the role ever moves.
-      aws_role_arn: ${{ vars.AWS_ROLE_ARN_ECR_BETA || 'arn:aws:iam::283477532906:role/github-actions-agent-plugins-beta-publisher' }}
-
-  cleanup:
-    if: ${{ github.event.action == 'closed' && !github.event.repository.is_template && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN_ECR_BETA || 'arn:aws:iam::283477532906:role/github-actions-agent-plugins-beta-publisher' }}
-          aws-region: us-east-1
-
-      - name: Delete this pull request's beta tag
-        env:
-          TAG: beta-pr-${{ github.event.pull_request.number }}
-        run: |
-          # Only this pull request's tag, never a pattern that could reach another one.
-          [[ "$TAG" =~ ^beta-pr-[0-9]+$ ]] || { echo "::error::unexpected tag '$TAG'"; exit 1; }
-          out=$(aws ecr-public batch-delete-image --region us-east-1 \
-                  --repository-name "$IMAGE" --image-ids imageTag="$TAG" --output json)
-          echo "$out" | jq -r '"deleted: \(.imageIds | length), failures: \([.failures[]?.failureCode] | join(","))"'
-          # A pull request whose build never pushed has nothing to delete.
-          if echo "$out" | jq -e '[.failures[]? | select(.failureCode != "ImageNotFound")] | length > 0' >/dev/null; then
-            echo "::error::could not delete $IMAGE:$TAG"; exit 1
-          fi
+      # One beta role for every repository; the organization variable overrides it if the role ever moves.
+      aws_role_arn: ${{ secrets.AWS_BETA_ROLE_ARN }}
+      artifact_np_api_key: ${{ secrets.ARTIFACT_NP_API_KEY }}

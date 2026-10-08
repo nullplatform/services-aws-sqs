@@ -45,7 +45,7 @@ jobs:
             missing=1
           fi
           if [ -z "$NP_ARTIFACT_NRN" ]; then
-            echo "::error::variable NP_ARTIFACT_NRN is missing; set it to organization=4 (README, Publishing)"
+            echo "::error::variable NP_ARTIFACT_NRN is missing; set it to the NRN of the organization that owns the artifacts (README, Publishing)"
             missing=1
           fi
           exit "$missing"
