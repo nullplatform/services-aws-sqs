@@ -29,7 +29,7 @@ sqs/
 │   ├── service-spec.json.tpl      # the form the developer sees
 │   ├── links/connect.json.tpl
 │   ├── requirements/aws/          # IAM role the agent assumes
-│   └── install/                   # registers the service and routes its actions to an agent
+│   └── install/aws/               # guide: service definition and agent association
 ├── deployment/                    # the queue, its policy and redrive policies
 ├── permissions/                   # link: IAM user, policy and access key
 ├── scripts/aws/                   # sqs_lib, context building, tofu execution, outputs
@@ -62,19 +62,7 @@ Each service keeps its state under `services/sqs/<service id>/terraform.tfstate`
 
 **4. Region.** The region comes from the account configuration (`aws.region`) or the account provider.
 
-**5. Register the service.** Apply `sqs/specs/install`. It registers the service and link specifications and the notification channel that routes their actions to the agents matching `agent_tags_selectors`:
-
-```hcl
-module "sqs_install" {
-  source               = "git::https://github.com/nullplatform/services-aws-sqs.git//sqs/specs/install?ref=<tag>"
-  nrn                  = "organization=<id>:account=<id>"
-  api_key              = "<nullplatform api key>"
-  repository_branch    = "<tag>"
-  agent_tags_selectors = { service = "aws-sqs" }
-}
-```
-
-`repository_branch` must be a tag or commit SHA, never a moving branch. To test local changes, set `git_provider = "local"`, `local_specs_path` to this repository's `sqs/` directory and `base_clone_path = "~/.np"`; the specs are then read from disk. To apply it as a root module, copy `terraform.tfvars.example` to `terraform.tfvars` first; `*.tfvars` are git-ignored.
+**5. Register the service.** Copy `sqs/specs/install/aws` into your infrastructure and apply it there: it registers the service definition and the agent association that routes the service's actions to your agents. It declares no provider; see [its README](sqs/specs/install/README.md).
 
 ## How it works
 

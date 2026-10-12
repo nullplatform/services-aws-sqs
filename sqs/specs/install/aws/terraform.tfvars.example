@@ -1,0 +1,14 @@
+nrn               = "" # e.g. organization=<org>:account=<account>:namespace=<namespace>
+np_api_key        = ""
+repository_branch = "" # a release tag, e.g. v1.0.0
+
+tags_selectors = {
+  "environment" = ""
+}
+
+# service_name        = "AWS SQS"
+# repository_org      = "nullplatform"
+# repository_name     = "services-aws-sqs"
+# repository_ref_type = "tags"
+# repository_token    = "" # needed to read the specs from a private repository
+# base_clone_path     = "/home/agent/.np"
