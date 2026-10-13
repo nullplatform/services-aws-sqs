@@ -1,0 +1,35 @@
+name: tests
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  do-tofu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/do_tofu_version.sh sqs/scripts/aws/do_tofu
+
+  bats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y bats jq
+      - run: bats sqs/scripts/tests/aws/ sqs/utils/tests/
+
+  tofu-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.12.6
+      - run: |
+          set -e
+          for dir in sqs/deployment sqs/permissions sqs/specs/requirements/aws sqs/specs/install/aws; do
+            tofu fmt -check "$dir"
+            tofu -chdir="$dir" init -backend=false -input=false
+            tofu -chdir="$dir" validate
+          done

@@ -1,0 +1,46 @@
+#!/bin/bash
+set -euo pipefail
+
+for var in LINK_ID LINK_USER_NAME REGION TFSTATE_BUCKET TFSTATE_KEY_PREFIX; do
+  if [ -z "${!var:-}" ]; then
+    echo "ERROR: ${var} is not set. build_context must run before this script." >&2
+    exit 1
+  fi
+done
+
+QUEUE_ARN=$(echo "$CONTEXT" | jq -r '.service.attributes.queue_arn // ""')
+if [ -z "$QUEUE_ARN" ]; then
+  echo "ERROR: the service has no queue_arn attribute yet." >&2
+  echo "  The queue must be created before a link can be established." >&2
+  exit 1
+fi
+
+KMS_KEY_ARN=""
+if [ "$(echo "$CONTEXT" | jq -r '.service.attributes.encryption_key_type // "sse-sqs"')" = "sse-kms" ]; then
+  KMS_KEY_ARN=$(echo "$CONTEXT" | jq -r '.service.attributes.kms_key_arn // ""')
+fi
+
+echo "Link ${LINK_ID} -> queue ${QUEUE_ARN} (user: ${LINK_USER_NAME})"
+
+export OUTPUT_DIR="/tmp/np-link-${LINK_ID}"
+mkdir -p "$OUTPUT_DIR"
+
+export TOFU_MODULE_DIR="$SERVICE_PATH/permissions"
+
+export TOFU_INIT_VARIABLES="-backend-config=bucket=${TFSTATE_BUCKET} -backend-config=key=${TFSTATE_KEY_PREFIX}links/${LINK_ID}.tfstate -backend-config=region=${REGION} -backend-config=use_lockfile=true"
+
+jq -n \
+  --arg link_id "$LINK_ID" \
+  --arg region "$REGION" \
+  --arg user_name "$LINK_USER_NAME" \
+  --arg queue_arn "$QUEUE_ARN" \
+  --arg kms_key_arn "$KMS_KEY_ARN" \
+  '{
+    link_id: $link_id,
+    region: $region,
+    user_name: $user_name,
+    queue_arn: $queue_arn,
+    kms_key_arn: $kms_key_arn
+  }' > "$OUTPUT_DIR/terraform.tfvars.json"
+
+export TOFU_VARIABLES="-var-file=${OUTPUT_DIR}/terraform.tfvars.json"

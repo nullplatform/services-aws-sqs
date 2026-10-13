@@ -1,0 +1,84 @@
+#!/bin/bash
+set -euo pipefail
+
+TOFU_ACTION="${TOFU_ACTION:-apply}"
+
+TOFU_VERSION="1.12.6"
+TOFU_CACHE_DIR="/tmp/np-tofu-bin/${TOFU_VERSION}"
+
+tofu_version_of() {
+  "$1" version 2>/dev/null | head -1 | sed -n 's/^OpenTofu v\([0-9][0-9.]*\).*/\1/p'
+}
+
+tofu_is_recent_enough() {
+  local version
+  version="$(tofu_version_of "$1")"
+  [ -n "$version" ] || return 1
+  [ "$(printf '%s\n%s\n' "$TOFU_VERSION" "$version" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" = "$TOFU_VERSION" ]
+}
+
+install_tofu() {
+  local staging
+  staging="$(mktemp -d /tmp/np-tofu-install.XXXXXX)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$staging'" EXIT
+  curl -fsSL \
+    "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_amd64.zip" \
+    -o "${staging}/tofu.zip"
+  unzip -qo "${staging}/tofu.zip" tofu -d "$staging"
+  chmod +x "${staging}/tofu"
+  mkdir -p "$TOFU_CACHE_DIR"
+  mv -f "${staging}/tofu" "${TOFU_CACHE_DIR}/tofu"
+  rm -rf "$staging"
+  trap - EXIT
+}
+
+if tofu_is_recent_enough tofu; then
+  TOFU_BIN="$(command -v tofu)"
+elif tofu_is_recent_enough "${TOFU_CACHE_DIR}/tofu"; then
+  TOFU_BIN="${TOFU_CACHE_DIR}/tofu"
+else
+  echo "Installing tofu v${TOFU_VERSION} to ${TOFU_CACHE_DIR}..."
+  install_tofu
+  TOFU_BIN="${TOFU_CACHE_DIR}/tofu"
+fi
+
+TOFU_BIN_DIR="$(dirname "$TOFU_BIN")"
+export PATH="${TOFU_BIN_DIR}:$PATH"
+
+if ! tofu_is_recent_enough "$TOFU_BIN"; then
+  echo "" >&2
+  echo "ERROR: ${TOFU_BIN} reports version '$(tofu_version_of "$TOFU_BIN")'," >&2
+  echo "       but this service requires OpenTofu ${TOFU_VERSION} or newer." >&2
+  echo "" >&2
+  exit 1
+fi
+
+echo "Using tofu v$(tofu_version_of "$TOFU_BIN") (${TOFU_BIN})"
+
+cd "$OUTPUT_DIR"
+
+cp -r "$TOFU_MODULE_DIR"/* .
+
+echo "Running: tofu init"
+# shellcheck disable=SC2086
+if ! tofu init -reconfigure $TOFU_INIT_VARIABLES; then
+  echo "" >&2
+  echo "ERROR: tofu init failed in ${OUTPUT_DIR}" >&2
+  echo "" >&2
+  echo "  Aborting before apply: continuing would operate on the wrong state." >&2
+  echo "" >&2
+  echo "  Possible causes:" >&2
+  echo "    - SQS_S3_STATE_BUCKET names a bucket that does not exist" >&2
+  echo "    - The state bucket is unreachable or the credentials expired" >&2
+  echo "" >&2
+  echo "  How to fix:" >&2
+  echo "    - Make sure each action uses its own OUTPUT_DIR" >&2
+  echo "    - Check that the state bucket exists and the assumed role can read it" >&2
+  echo "" >&2
+  exit 1
+fi
+
+echo "Running: tofu $TOFU_ACTION"
+# shellcheck disable=SC2086
+tofu "$TOFU_ACTION" -auto-approve $TOFU_VARIABLES

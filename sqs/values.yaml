@@ -1,0 +1,6 @@
+# Static configuration for the service workflows (not shown in the nullplatform UI).
+# Read it in scripts from the file at $VALUES.
+
+# Local testing only: AWS profile the scripts use when no IAM provider publishes a role
+# (run `aws sso login --profile <name>` first). Leave unset in production.
+# aws_profile: "my-sso-profile"

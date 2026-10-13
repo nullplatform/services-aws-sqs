@@ -1,0 +1,50 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ -z "${REGION:-}" ]; then
+  echo "ERROR: REGION is not set. build_context must run before this script." >&2
+  exit 1
+fi
+
+cd "$OUTPUT_DIR"
+
+LINK_ID=$(echo "$CONTEXT" | jq -r '.link.id')
+
+OUTPUTS=$(tofu output -json 2>/dev/null || echo '{}')
+
+USER_NAME=$(echo "$OUTPUTS"         | jq -r '.user_name.value         // ""')
+ACCESS_KEY_ID=$(echo "$OUTPUTS"     | jq -r '.access_key_id.value     // ""')
+SECRET_ACCESS_KEY=$(echo "$OUTPUTS" | jq -r '.secret_access_key.value // ""')
+
+if [ -z "$USER_NAME" ]; then
+  echo "ERROR: No user_name output found." >&2
+  exit 1
+fi
+
+if [ -z "$ACCESS_KEY_ID" ]; then
+  echo "ERROR: No access_key_id output found." >&2
+  exit 1
+fi
+
+if [ -z "$SECRET_ACCESS_KEY" ]; then
+  echo "ERROR: the access key was created but its secret could not be read." >&2
+  echo "  Writing the link without it would hand the application credentials" >&2
+  echo "  it cannot authenticate with." >&2
+  exit 1
+fi
+
+ATTRIBUTES=$(jq -n -c \
+  --arg access_key_id     "$ACCESS_KEY_ID" \
+  --arg secret_access_key "$SECRET_ACCESS_KEY" \
+  --arg aws_region        "$REGION" \
+  '{
+    access_key_id:     $access_key_id,
+    secret_access_key: $secret_access_key,
+    aws_region:        $aws_region
+  }')
+
+echo "Writing link attributes for link ${LINK_ID} (user: ${USER_NAME})"
+
+np link patch --id "$LINK_ID" --body "{\"attributes\": $ATTRIBUTES}"
+
+echo "Link attributes updated."

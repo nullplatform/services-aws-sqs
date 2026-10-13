@@ -6,3 +6,7 @@ Dockerfile
 **/.terraform
 **/*.tfstate*
 mise.toml
+docs
+tests
+nullplatform
+nullplatform-bindings

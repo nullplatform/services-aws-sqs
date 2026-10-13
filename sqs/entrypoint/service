@@ -1,0 +1,37 @@
+#!/bin/bash
+# Runs workflows/aws/<action>.yaml for a service action (create, update, delete, or a custom action slug),
+# with $OVERRIDES_PATH/workflows/aws/<action>.yaml as overrides when it exists.
+set -euo pipefail
+
+echo "Executing service action=$SERVICE_ACTION type=$SERVICE_ACTION_TYPE"
+
+ACTION_TO_EXECUTE="$SERVICE_ACTION_TYPE"
+
+case "$SERVICE_ACTION_TYPE" in
+  "custom")
+    ACTION_TO_EXECUTE="$SERVICE_ACTION"
+    ;;
+esac
+
+# The action names a file: refuse anything that is not a plain slug.
+if [[ ! "$ACTION_TO_EXECUTE" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  echo "ERROR: invalid action '$ACTION_TO_EXECUTE'" >&2
+  exit 1
+fi
+
+WORKFLOW_PATH="$SERVICE_PATH/workflows/aws/$ACTION_TO_EXECUTE.yaml"
+OVERRIDES_WORKFLOW_PATH="${OVERRIDES_PATH:-}/workflows/aws/$ACTION_TO_EXECUTE.yaml"
+VALUES_PATH="$SERVICE_PATH/values.yaml"
+
+ARGS=(service workflow exec --workflow "$WORKFLOW_PATH")
+
+if [[ -f "$VALUES_PATH" ]]; then
+  ARGS+=(--values "$VALUES_PATH")
+fi
+
+if [[ -n "${OVERRIDES_PATH:-}" && -f "$OVERRIDES_WORKFLOW_PATH" ]]; then
+  ARGS+=(--overrides "$OVERRIDES_WORKFLOW_PATH")
+fi
+
+echo "Executing command: np ${ARGS[*]}"
+np "${ARGS[@]}"

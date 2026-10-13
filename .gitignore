@@ -4,3 +4,7 @@
 *.tfplan
 .env
 .DS_Store
+
+# Registration variables carry the API key and your NRN
+*.tfvars
+*.tfvars.json

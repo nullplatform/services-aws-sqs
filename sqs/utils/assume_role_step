@@ -1,0 +1,38 @@
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/assume_role_lib"
+
+NRN=$(echo "${CONTEXT:-}" | jq -r '.service.nrn // .scope.nrn // .entity_nrn // ""' 2>/dev/null)
+
+DIMENSIONS=$(echo "${CONTEXT:-}" | jq -r '
+  if (.dimensions | type) == "object" and ((.dimensions | length) > 0)
+  then [ .dimensions | to_entries[] | "\(.key):\(.value)" ] | join(",")
+  else empty end' 2>/dev/null)
+
+SQS_ASSUME_ROLE_SELECTOR="${SQS_ASSUME_ROLE_SELECTOR:-sqs}"
+
+IAM_ATTRIBUTES=$(np provider list \
+  --nrn "$NRN" \
+  --categories identity-access-control \
+  ${DIMENSIONS:+--dimensions "$DIMENSIONS"} \
+  --format json 2>/dev/null \
+  | jq -c '(.results // [])[0].attributes // {}' 2>/dev/null)
+
+SQS_ASSUME_ROLE_ARN_RESOLVED=$(resolve_assume_role_arn \
+  "$IAM_ATTRIBUTES" \
+  "$SQS_ASSUME_ROLE_SELECTOR" \
+  "SQS_ASSUME_ROLE_ARN" \
+  "SQS_ASSUME_ROLE_ARN_DEFAULT")
+export SQS_ASSUME_ROLE_ARN_RESOLVED
+
+if ! source "$SCRIPT_DIR/assume_role"; then
+  echo "   ❌ assume_role step failed: could not assume $SQS_ASSUME_ROLE_ARN_RESOLVED" >&2
+  echo "" >&2
+  echo "💡 Possible causes:" >&2
+  echo "   • The agent's role is not allowed to sts:AssumeRole the target role" >&2
+  echo "   • The target role does not exist or does not trust the agent role" >&2
+  echo "   • No role ARN for selector=$SQS_ASSUME_ROLE_SELECTOR in the IAM provider at NRN=$NRN" >&2
+  echo "" >&2
+  exit 1
+fi

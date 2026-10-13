@@ -1,0 +1,37 @@
+#!/bin/bash
+set -euo pipefail
+
+cd "$OUTPUT_DIR"
+
+SERVICE_ID=$(echo "$CONTEXT" | jq -r '.service.id')
+
+OUTPUTS=$(tofu output -json 2>/dev/null || echo '{}')
+
+QUEUE_URL=$(echo "$OUTPUTS"  | jq -r '.queue_url.value  // ""')
+QUEUE_ARN=$(echo "$OUTPUTS"  | jq -r '.queue_arn.value  // ""')
+QUEUE_NAME=$(echo "$OUTPUTS" | jq -r '.queue_name.value // ""')
+
+for pair in "queue_url:$QUEUE_URL" "queue_arn:$QUEUE_ARN" "queue_name:$QUEUE_NAME"; do
+  if [ -z "${pair#*:}" ]; then
+    echo "ERROR: No ${pair%%:*} output found." >&2
+    echo "  Writing the service without it would leave applications with no queue to reach." >&2
+    exit 1
+  fi
+done
+
+ATTRIBUTES=$(jq -n -c \
+  --arg queue_url  "$QUEUE_URL" \
+  --arg queue_arn  "$QUEUE_ARN" \
+  --arg queue_name "$QUEUE_NAME" \
+  '{
+    queue_url:  $queue_url,
+    queue_arn:  $queue_arn,
+    queue_name: $queue_name
+  }')
+
+echo "Writing service attributes for service ${SERVICE_ID}:"
+echo "$ATTRIBUTES" | jq .
+
+np service patch --id "$SERVICE_ID" --body "{\"attributes\": $ATTRIBUTES}"
+
+echo "Service attributes updated."

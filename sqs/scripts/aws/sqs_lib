@@ -1,0 +1,169 @@
+#!/bin/bash
+# Pure helpers for the SQS scripts: unit conversion, range checks and input validation.
+# Sourced by build_context. Every function prints its result on stdout; on invalid
+# input it prints "ERROR: ..." on stderr and returns 1.
+
+SQS_KMS_ARN_PATTERN='^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:(key/[A-Za-z0-9-]+|alias/[A-Za-z0-9/_-]+)$'
+SQS_QUEUE_ARN_PATTERN='^arn:aws[a-z-]*:sqs:[a-z0-9-]+:[0-9]{12}:[A-Za-z0-9_-]{1,80}(\.fifo)?$'
+SQS_PRINCIPAL_ARN_PATTERN='^arn:aws[a-z-]*:iam::[0-9]{12}:(root|(user|role)/[A-Za-z0-9+=.@_/-]+)$'
+
+sqs_unit_factor() {
+  case "$1" in
+    seconds) echo 1 ;;
+    minutes) echo 60 ;;
+    hours) echo 3600 ;;
+    days) echo 86400 ;;
+    *) return 1 ;;
+  esac
+}
+
+sqs_whole_number() {
+  local label="$1" value="$2" min="$3" max="$4" number
+  if ! [[ "$value" =~ ^[0-9]{1,9}$ ]]; then
+    echo "ERROR: ${label} must be a whole number, got '${value}'" >&2
+    return 1
+  fi
+  number=$((10#$value))
+  if [ "$number" -lt "$min" ] || [ "$number" -gt "$max" ]; then
+    echo "ERROR: ${label} must be between ${min} and ${max}, got ${number}" >&2
+    return 1
+  fi
+  echo "$number"
+}
+
+sqs_to_seconds() {
+  local label="$1" value="$2" unit="$3" min="$4" max="$5" allowed="$6"
+  local factor seconds
+  if [[ " $allowed " != *" $unit "* ]]; then
+    echo "ERROR: ${label} unit must be one of: ${allowed}; got '${unit}'" >&2
+    return 1
+  fi
+  if ! [[ "$value" =~ ^[0-9]{1,9}$ ]]; then
+    echo "ERROR: ${label} must be a whole number, got '${value}'" >&2
+    return 1
+  fi
+  factor=$(sqs_unit_factor "$unit")
+  seconds=$((10#$value * factor))
+  if [ "$seconds" -lt "$min" ] || [ "$seconds" -gt "$max" ]; then
+    echo "ERROR: ${label} must be between ${min} and ${max} seconds, got ${seconds} (${value} ${unit})" >&2
+    return 1
+  fi
+  echo "$seconds"
+}
+
+sqs_queue_name() {
+  local type="$1" name="$2"
+  if ! [[ "$name" =~ ^[A-Za-z0-9_-]{1,72}$ ]]; then
+    echo "ERROR: name must be 1-72 characters: letters, numbers, hyphens and underscores; got '${name}'" >&2
+    return 1
+  fi
+  case "$type" in
+    standard) echo "np-${name}" ;;
+    fifo) echo "np-${name}.fifo" ;;
+    *)
+      echo "ERROR: queue_type must be standard or fifo, got '${type}'" >&2
+      return 1
+      ;;
+  esac
+}
+
+sqs_parse_principals() {
+  local label="$1" csv="$2" item items
+  local principals=()
+  # read -a splits on commas without expanding globs such as a lone "*"
+  IFS=',' read -ra items <<< "$csv"
+  for item in ${items[@]+"${items[@]}"}; do
+    item="${item//[[:space:]]/}"
+    [ -n "$item" ] || continue
+    if [[ "$item" =~ ^[0-9]{12}$ ]]; then
+      principals+=("arn:aws:iam::${item}:root")
+    elif [[ "$item" =~ $SQS_PRINCIPAL_ARN_PATTERN ]]; then
+      principals+=("$item")
+    else
+      echo "ERROR: ${label} entry '${item}' is not a 12-digit account ID or an IAM user, role or account ARN" >&2
+      return 1
+    fi
+  done
+  if [ "${#principals[@]}" -eq 0 ]; then
+    echo "ERROR: ${label} needs at least one account ID or ARN" >&2
+    return 1
+  fi
+  printf '%s\n' "${principals[@]}" | jq -R . | jq -sc .
+}
+
+sqs_access_principals() {
+  local label="$1" mode="$2" csv="$3"
+  case "$mode" in
+    owner) echo '[]' ;;
+    principals) sqs_parse_principals "${label} principals" "$csv" ;;
+    *)
+      echo "ERROR: ${label} access must be owner or principals, got '${mode}'" >&2
+      return 1
+      ;;
+  esac
+}
+
+sqs_require_kms_arn() {
+  local arn="$1"
+  if ! [[ "$arn" =~ $SQS_KMS_ARN_PATTERN ]]; then
+    echo "ERROR: kms_key_arn must be a KMS key or alias ARN (arn:aws:kms:<region>:<account>:key/<id> or .../alias/<name>), got '${arn}'" >&2
+    return 1
+  fi
+}
+
+sqs_require_queue_arn() {
+  local label="$1" arn="$2"
+  if ! [[ "$arn" =~ $SQS_QUEUE_ARN_PATTERN ]]; then
+    echo "ERROR: ${label} must be an SQS queue ARN (arn:aws:sqs:<region>:<account>:<name>), got '${arn}'" >&2
+    return 1
+  fi
+}
+
+sqs_parse_queue_arns() {
+  local label="$1" csv="$2" item items
+  local arns=()
+  IFS=',' read -ra items <<< "$csv"
+  for item in ${items[@]+"${items[@]}"}; do
+    item="${item//[[:space:]]/}"
+    [ -n "$item" ] || continue
+    sqs_require_queue_arn "${label} entry" "$item" || return 1
+    arns+=("$item")
+  done
+  if [ "${#arns[@]}" -eq 0 ]; then
+    echo "ERROR: ${label} needs at least one queue ARN" >&2
+    return 1
+  fi
+  printf '%s\n' "${arns[@]}" | jq -R . | jq -sc .
+}
+
+sqs_require_matching_dlq() {
+  local fifo="$1" dlq_arn="$2"
+  local dlq_is_fifo=false
+  if [[ "$dlq_arn" == *.fifo ]]; then
+    dlq_is_fifo=true
+  fi
+  if [ "$fifo" = "true" ] && [ "$dlq_is_fifo" = "false" ]; then
+    echo "ERROR: a FIFO queue needs a FIFO dead-letter queue, got '${dlq_arn}'" >&2
+    return 1
+  fi
+  if [ "$fifo" = "false" ] && [ "$dlq_is_fifo" = "true" ]; then
+    echo "ERROR: a Standard queue needs a Standard dead-letter queue, got '${dlq_arn}'" >&2
+    return 1
+  fi
+}
+
+sqs_user_tags_json() {
+  local raw="$1" tags
+  tags=$(echo "$raw" | jq -c '
+    def trim: gsub("^\\s+|\\s+$"; "");
+    if type == "array" then
+      map(select((.key // "") != "") | {(.key | trim): ((.value // "") | tostring | trim)}) | add // {}
+    elif type == "string" then
+      split(",") | map(select(trim != "") | split("=") | {(.[0] | trim): (.[1:] | join("=") | trim)}) | add // {}
+    else {} end')
+  if echo "$tags" | jq -e 'keys | any(startswith("aws:"))' >/dev/null; then
+    echo "ERROR: tag keys must not start with aws:" >&2
+    return 1
+  fi
+  echo "$tags"
+}
