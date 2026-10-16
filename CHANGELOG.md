@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.3](https://github.com/nullplatform/services-aws-sqs/compare/v1.0.2...v1.0.3) (2026-10-16)
+
+
+### Bug Fixes
+
+* **deps:** bump actions/checkout from 4 to 7 ([#9](https://github.com/nullplatform/services-aws-sqs/issues/9)) ([1af6a22](https://github.com/nullplatform/services-aws-sqs/commit/1af6a2283aab57de0d96c3858715278c194f497f))
+* **deps:** bump opentofu/setup-opentofu from 1 to 2 ([#8](https://github.com/nullplatform/services-aws-sqs/issues/8)) ([0c43218](https://github.com/nullplatform/services-aws-sqs/commit/0c43218000160eaf4e6bf9d900c65206c5bd0cf7))
+
 ## [1.0.2](https://github.com/nullplatform/services-aws-sqs/compare/v1.0.1...v1.0.2) (2026-10-16)
 
 
