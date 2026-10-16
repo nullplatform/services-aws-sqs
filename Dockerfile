@@ -5,7 +5,7 @@ FROM public.ecr.aws/nullplatform/scopes/worker-bridge:2.0.1
 # The steps call the AWS CLI (state bucket checks, state cleanup) and OpenTofu; jq and the np CLI ship with the bridge.
 RUN apk add --no-cache aws-cli
 
-ARG TOFU_VERSION=1.12.6
+ARG TOFU_VERSION=1.13.1
 ARG TARGETARCH
 RUN curl -fsSL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_${TARGETARCH}.tar.gz" \
       | tar -xz -C /usr/local/bin tofu \
