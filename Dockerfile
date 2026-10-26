@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Worker image: the bridge runs the entrypoint on every action. Add the tools your steps need.
-FROM public.ecr.aws/nullplatform/scopes/worker-bridge:2.0.3
+FROM public.ecr.aws/nullplatform/scopes/worker-bridge:2.0.6
 
 # The steps call the AWS CLI (state bucket checks, state cleanup) and OpenTofu; jq and the np CLI ship with the bridge.
 RUN apk add --no-cache aws-cli
