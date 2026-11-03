@@ -1,5 +1,4 @@
 nrn               = "" # e.g. organization=<org>:account=<account>:namespace=<namespace>
-np_api_key        = ""
 repository_branch = "" # a release tag, e.g. v1.0.0
 
 tags_selectors = {

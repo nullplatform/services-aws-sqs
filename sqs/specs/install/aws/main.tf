@@ -9,6 +9,11 @@
 #
 # The IAM role the agent assumes lives in ../../requirements/aws and is applied
 # separately, in the AWS account that holds the queues.
+#
+# The agent association takes no API key: nullplatform creates and manages the
+# notification channel's credential, scoped to dispatching commands to agents.
+# The identity running the apply must be able to assign the
+# controlplane:agent-dispatcher role (admin, ops or secops).
 ################################################################################
 
 locals {
@@ -17,7 +22,7 @@ locals {
 }
 
 module "service_definition" {
-  source = "git::https://github.com/nullplatform/tofu-modules.git//nullplatform/service_definition?ref=v8.1.0"
+  source = "git::https://github.com/nullplatform/tofu-modules.git//nullplatform/service_definition?ref=v8.7.0"
 
   nrn                 = var.nrn
   service_name        = var.service_name
@@ -31,10 +36,9 @@ module "service_definition" {
 }
 
 module "service_definition_agent_association" {
-  source = "git::https://github.com/nullplatform/tofu-modules.git//nullplatform/service_definition_agent_association?ref=v8.1.0"
+  source = "git::https://github.com/nullplatform/tofu-modules.git//nullplatform/service_definition_agent_association?ref=v8.7.0"
 
   nrn                          = var.nrn
-  api_key                      = var.np_api_key
   tags_selectors               = var.tags_selectors
   service_specification_slug   = module.service_definition.service_specification_slug
   repository_service_spec_repo = var.repository_name
