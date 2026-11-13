@@ -28,8 +28,8 @@ sqs/
 ├── specs/
 │   ├── service-spec.json.tpl      # the form the developer sees
 │   ├── links/connect.json.tpl
-│   ├── requirements/aws/          # IAM role the agent assumes
-│   └── install/aws/               # guide: service definition and agent association
+│   └── requirements/aws/          # IAM role the agent assumes
+├── publish/                       # publishes the service as a package (release workflow only)
 ├── deployment/                    # the queue, its policy and redrive policies
 ├── permissions/                   # link: IAM user, policy and access key
 ├── scripts/aws/                   # sqs_lib, context building, tofu execution, outputs
@@ -40,29 +40,106 @@ sqs/
 └── values.yaml                    # static config, not exposed in the UI
 ```
 
-## Installation
+## Install in your organization
 
-**1. Create the permissions role.** Apply `sqs/specs/requirements/aws` in the target AWS account:
+The service is published once as the package `np-aws-sqs` (specification "AWS SQS"), visible to every organization. You do not copy its specs: you install the package and use it read-only.
+
+If you need to change the specification, the link, the actions or the workflows themselves, see [the global package, or your own fork](#two-ways-to-run-this-service-the-global-package-or-your-own-fork) below before installing anything.
+
+Installing it touches the same three layers as registering a service yourself, and only the nullplatform layer changes:
+
+| Layer | What | Module |
+|---|---|---|
+| infrastructure (AWS credentials) | The IAM role the service assumes, and the state bucket every SQS service shares | [`sqs/specs/requirements/aws`](./sqs/specs/requirements/aws) |
+| nullplatform (nullplatform API key) | The installation of the package and the agent channel | tofu-modules' `service_package_installation` |
+| bindings | The role under selector `sqs` in your IAM provider | your `aws-iam-configuration` provider |
+
+Pick ONE release of this repository (the latest is on its [releases page](https://github.com/nullplatform/services-aws-sqs/releases)) and use its version in both places below: the IAM role is the one the worker of that same release expects.
 
 ```hcl
+# ── infrastructure layer ─────────────────────────────────────────────
 module "sqs_requirements" {
-  source            = "git::https://github.com/nullplatform/services-aws-sqs.git//sqs/specs/requirements/aws?ref=main"
+  source            = "git::https://github.com/nullplatform/services-aws-sqs.git//sqs/specs/requirements/aws?ref=vX.Y.Z"
   cluster_name      = "<nullplatform agent cluster>"
   state_bucket_name = "<existing S3 bucket for the tofu state>"
+  # kms_key_arns: the keys your teams use; the default lets the role use any key.
 }
+
+# The agent role must be allowed to assume it: add it to the assume_role_arns
+# of tofu-modules' infrastructure/aws/iam/agent.
+#   assume_role_arns = [..., module.sqs_requirements.permissions_role_arn]
+
+# ── nullplatform layer ───────────────────────────────────────────────
+# The same module a catalog entry with `install_package` becomes. For a
+# service the installation is the whole nullplatform side, channel included.
+module "sqs" {
+  source = "git::https://github.com/nullplatform/tofu-modules.git//nullplatform/service_package_installation?ref=v9.16.0"
+
+  nrn                  = var.nrn
+  package_slug         = "np-aws-sqs"
+  package_version      = "X.Y.Z" # the same release, without the v
+  agent_tags_selectors = { cluster = "runtime" } # must match the agent's TAGS
+}
+# Keeping channels in a separate bindings layer instead? Use
+# nullplatform/package_installation here and service_definition_agent_association
+# there, with package_slug = "np-aws-sqs".
+
+# ── bindings layer ───────────────────────────────────────────────────
+# One aws-iam-configuration per NRN and dimensions: add the entry to the list
+# your IAM provider already has.
+#   { selector = "sqs", arn = module.sqs_requirements.permissions_role_arn }
 ```
 
-To apply it as a root module instead, copy `terraform.tfvars.example` to `terraform.tfvars` and fill it in. Set `kms_key_arns` to the keys your teams use; the default lets the role use any key.
+**The state bucket.** Create one S3 bucket that every SQS service shares for its tofu state, enable versioning, and pass its name to the requirements module as `state_bucket_name`. The agent must receive the same name in the environment variable `SQS_S3_STATE_BUCKET`. The service never creates or deletes this bucket: if it is missing, every action fails with a clear error. Each service keeps its state under `services/sqs/<service id>/terraform.tfstate`, and each link under `services/sqs/<service id>/links/<link id>.tfstate`. Deleting a service removes that prefix and nothing else.
 
-**2. Publish the role.** Register `permissions_role_arn` in the nullplatform AWS IAM provider under the selector **`sqs`**, and allow the agent role to assume it.
+**Region.** The region comes from the account configuration (`aws.region`) or the account provider.
 
-**3. Create the state bucket.** Create one S3 bucket that every SQS service shares for its tofu state, enable versioning, and pass its name to the requirements module as `state_bucket_name`. The agent must receive the same name in the environment variable `SQS_S3_STATE_BUCKET`. The service never creates or deletes this bucket: if it is missing, every action fails with a clear error.
+The service assumes the role it finds under selector `sqs` in the IAM provider closest to its NRN. To upgrade, move the release in both layers: `ref` of the requirements module and `package_version` of the installation. See tofu-modules' [`service_package_installation`](https://github.com/nullplatform/tofu-modules/tree/main/nullplatform/service_package_installation) for its inputs and outputs.
 
-Each service keeps its state under `services/sqs/<service id>/terraform.tfstate`, and each link under `services/sqs/<service id>/links/<link id>.tfstate`. Deleting a service removes that prefix and nothing else.
+Prerequisites: an agent whose `TAGS` match the channel's `tags_selectors` and with `public.ecr.aws/nullplatform/*` in `worker.allowedRegistries`, and an AWS cloud provider exposing `account.region` at the NRN or above it.
 
-**4. Region.** The region comes from the account configuration (`aws.region`) or the account provider.
+### Already registered with `service_definition`?
 
-**5. Register the service.** Copy `sqs/specs/install/aws` into your infrastructure and apply it there: it registers the service definition and the agent association that routes the service's actions to your agents. It declares no provider; see [its README](sqs/specs/install/README.md).
+Organizations that registered this service with `service_definition` have their own copy: specification "AWS SQS" (slug `aws-sqs`) and a channel filtered to that slug. The global package uses other names (`np-aws-sqs`), so both live side by side in one organization:
+
+- In the nullplatform layer, add the installation (the module above, or a catalog entry with `install_package`) next to your `service_definition`. Its outputs have the same names, so the map your bindings layer reads keeps its shape, and its channel routes only the global slug: your existing channel keeps serving your copy.
+- Keep your IAM role: both specifications assume the role under selector `sqs`, with the same permissions. The infrastructure layer does not change.
+- Existing services stay on your copy (a service cannot move to another specification). Create new services from "AWS SQS", and remove your `service_definition` and its channel once no service uses them.
+
+### Two ways to run this service: the global package, or your own fork
+
+| | **Global package** (default) | **Your own fork** |
+|---|---|---|
+| Specs and code | Maintained by nullplatform in this repository | Maintained by you, in your fork |
+| What you install | The package `np-aws-sqs`, read-only | A package you publish in your organization, or a registered copy |
+| Updates | A new release: move the version | Only when you merge upstream into your fork |
+| When | Always, unless you need changes to the specification, the links, the actions or the workflows | Substantial changes: new actions or links, another specification (attributes, validations), workflows that behave differently |
+
+**Use the global package.** It is the only way to keep receiving fixes, features and security patches: each one arrives as a release of this repository and you take it by moving the installed version. The section above is that path; its two forms are the same module:
+
+- From a catalog of `service_definition` entries (tofu-modules): the same entry with an `install_package = { slug = "np-aws-sqs", version = "X.Y.Z" }` block becomes a `service_package_installation`. For a service the installation is the whole nullplatform side, the agent channel included.
+- From a root of your own: the module call in the section above, with the same inputs.
+
+If something is missing or wrong, open an issue or a pull request here, so every organization gets it.
+
+**Fork only to change what the service is.** A fork means you become the publisher of a different service: you build its worker image, publish its package in your organization and maintain its specs, code and installation. Step by step:
+
+1. **Fork the repository and give the service its own names.** In [`sqs/publish/main.tf`](./sqs/publish/main.tf): `package_slug` (for example `acme-aws-sqs`) and `service_name` ("Acme SQS"); the specification takes the package slug. The slug must differ from `np-aws-sqs`, and from `aws-sqs` if you also run a copy: agent channels route by the specification slug, so two services with one slug share a worker. Link specifications keep their own slugs; give them yours with `link_slugs` only if they collide inside your organization.
+2. **Publish into your organization, not every organization.** In the same file, add `visible_to = [var.publisher_nrn]` to the module call: the module publishes to every organization by default, which only the platform organization may, and your package is yours. Point `image_repository` (and `image_registry`, when it is not ECR Public) at your registry.
+3. **Set the release workflow's secrets in your fork**: `ARTIFACT_NP_API_KEY` (a key of your organization, allowed to write artifacts, specifications and packages), `AWS_ROLE_ARN_ECR_PUSH`, `PACKAGE_STATE_AWS_ACCOUNT_ID` (with a role named `github-actions-<repository>-package-state` that may write the state bucket) or `AWS_ROLE_ARN_PACKAGE_STATE` (a role named otherwise), `PACKAGE_TFSTATE_BUCKET` and `PACKAGE_TFSTATE_REGION`, plus the `NP_ARTIFACT_NRN` variable. From then on, each release of your fork builds the image, registers it and publishes a revision of your package ([`release.yml`](./.github/workflows/release.yml)), versioned by its release tag.
+4. **Install your package the same way as the global one**, with your slug in `install_package` and your own agent channel. The IAM role and its selector can stay `sqs` as long as the permissions in [`sqs/specs/requirements/aws`](./sqs/specs/requirements/aws) still fit what your fork does; if they do not, give your fork its own role and selector too.
+
+**Your specs on our image: the shortcut, and why it is risky.** The worker image this repository publishes is a global artifact, so a package of your own may pin it (an artifact looked up by registry, repository and the digest of one of our releases, as the module behind [`sqs/publish`](./sqs/publish) does) and change only the specs. It saves you the build, and it is the main trade-off to understand before taking it: the code in that image reads the specification it was released with — the attributes the form collects, the actions and their parameters, the link specifications and what they export — so every change to your specs is a divergence the image does not know about, and the next release of ours assumes specs you no longer have. A service behaves as one thing because its specs and its code are released together; that coupling is the reason the global package carries both, and splitting them puts the breakage on your side, at runtime, with nothing in the platform to warn you. Take the shortcut only for changes the image cannot see, such as descriptions, defaults within the same shape, or visibility; anything the workflows read belongs with a forked image.
+
+Without packages, the classic way still works: register your fork as a copy with `service_definition` pointing at your fork's repository and tag.
+
+What a fork costs, before you take it:
+
+- **Updates stop arriving.** Upstream fixes reach you only when you merge them into your fork yourself.
+- **There is no way back for existing services.** A service cannot move to another specification: services created from your fork's specification stay on it.
+- **You own the operations.** Images, releases, state of the publisher stack and the compatibility of your specs with the agent are yours to keep.
+
+## How the package is published
 
 ## How it works
 
@@ -187,5 +264,6 @@ After adding the **Public ECR** service to the application, set in this reposito
 |---|---|---|
 | `AWS_ROLE_ARN_ECR_PUSH` | secret | the publisher role ARN the Public ECR service returns |
 | `NP_ARTIFACT_NRN` | variable | the NRN of the organization that owns the artifacts |
+| `PACKAGE_STATE_AWS_ACCOUNT_ID`, `PACKAGE_TFSTATE_BUCKET`, `PACKAGE_TFSTATE_REGION` | organization secrets | where the publish stack keeps its state; the state role is `github-actions-<repository>-package-state` in that account, by convention |
 
 `ARTIFACT_NP_API_KEY` comes from the organization. The release checks all three before building and fails with a clear error if one is missing. Beta images assume the role in the organization secret `AWS_BETA_ROLE_ARN` (no role is written in the workflow) and push to the image's `beta/` repository in ECR Public, which the dispatcher creates together with the production one. In this template repository neither workflow runs.
