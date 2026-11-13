@@ -239,7 +239,7 @@ it: the release publishes the image and registers the artifact.
 | branch-validation | PR | branch named `feat/…`, `fix/…`, `chore/…` |
 | conventional-commit | PR | commit messages (release-please reads them) |
 | shellcheck | PR | every bash script |
-| tests | PR | BATS unit tests, `do_tofu` version pin, and `tofu validate` of the four modules |
+| tests | PR | BATS unit tests, `do_tofu` version pin, and `tofu validate` of the four stacks (deployment, permissions, requirements, publish) |
 | trivy | PR | IaC misconfiguration and image scan, to the Security tab |
 | beta | PR (opened, push, reopened) | publish-test-image-oci: pushes `beta/<image>:test-<branch>-<short sha>` and registers it as a nullplatform artifact |
 | release | push to `main` | release-please → build and push `vX.Y.Z` and `latest` to ECR Public → nullplatform artifact → GitHub release |
