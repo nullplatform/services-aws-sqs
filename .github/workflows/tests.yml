@@ -23,9 +23,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # Validate with the version do_tofu pins, read from the script so the two cannot drift.
+      - id: pin
+        run: echo "version=$(sed -n 's/^[[:space:]]*TOFU_VERSION="\([0-9.]*\)".*/\1/p' sqs/scripts/aws/do_tofu | head -1)" >> "$GITHUB_OUTPUT"
       - uses: opentofu/setup-opentofu@v2
         with:
-          tofu_version: 1.12.6
+          tofu_version: ${{ steps.pin.outputs.version }}
       - run: |
           set -e
           for dir in sqs/deployment sqs/permissions sqs/specs/requirements/aws sqs/specs/install/aws; do

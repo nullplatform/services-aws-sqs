@@ -3,7 +3,7 @@ set -euo pipefail
 
 TOFU_ACTION="${TOFU_ACTION:-apply}"
 
-TOFU_VERSION="1.12.6"
+TOFU_VERSION="1.13.9"
 TOFU_CACHE_DIR="/tmp/np-tofu-bin/${TOFU_VERSION}"
 
 tofu_version_of() {
