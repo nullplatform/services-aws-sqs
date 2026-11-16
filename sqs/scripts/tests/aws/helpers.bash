@@ -17,6 +17,10 @@ setup_mocks() {
 	[ -n "${MOCK_NP_PROVIDER:-}" ] || MOCK_NP_PROVIDER='{}'
 	export MOCK_TOFU_OUTPUTS MOCK_NP_PROVIDERS MOCK_NP_PROVIDER
 	export MOCK_TOFU_EXIT="${MOCK_TOFU_EXIT:-0}"
+	# The tofu mock reports the version do_tofu pins, so a bump of the pin never
+	# leaves the mock behind it ("requires OpenTofu X or newer").
+	MOCK_TOFU_VERSION="${MOCK_TOFU_VERSION:-$(sed -n 's/^[[:space:]]*TOFU_VERSION="\([0-9.]*\)".*/\1/p' "$SCRIPTS_DIR/do_tofu" | head -1)}"
+	export MOCK_TOFU_VERSION
 	export MOCK_LIST_VERSIONS="${MOCK_LIST_VERSIONS:-null}"
 	unset AWS_PROFILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN ACTION_SOURCE
 	export SQS_S3_STATE_BUCKET="${SQS_S3_STATE_BUCKET-np-sqs-state}"
@@ -60,7 +64,7 @@ MOCK
 #!/bin/bash
 echo "tofu $*" >> "$MOCK_LOG"
 case "$1" in
-	version) printf 'OpenTofu v1.12.6\non test\n' ;;
+	version) printf 'OpenTofu v%s\non test\n' "$MOCK_TOFU_VERSION" ;;
 	output) echo "$MOCK_TOFU_OUTPUTS" ;;
 	init|apply|destroy) exit "$MOCK_TOFU_EXIT" ;;
 esac
