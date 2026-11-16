@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.7](https://github.com/nullplatform/services-aws-sqs/compare/v1.0.6...v1.0.7) (2026-11-16)
+
+
+### Bug Fixes
+
+* **deps:** update dependency opentofu/opentofu to v1.13.9 ([#23](https://github.com/nullplatform/services-aws-sqs/issues/23)) ([18eaa44](https://github.com/nullplatform/services-aws-sqs/commit/18eaa44b5d6da7659ed22115f57b19f75916a572))
+
 ## [1.0.6](https://github.com/nullplatform/services-aws-sqs/compare/v1.0.5...v1.0.6) (2026-11-02)
 
 
