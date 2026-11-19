@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/nullplatform/services-aws-sqs/compare/v1.0.7...v1.1.0) (2026-11-19)
+
+
+### Features
+
+* **package:** publish the service as a global package ([6817ee5](https://github.com/nullplatform/services-aws-sqs/commit/6817ee59b901784dcfc5989b46e472cf45f1f8c3))
+
 ## [1.0.7](https://github.com/nullplatform/services-aws-sqs/compare/v1.0.6...v1.0.7) (2026-11-16)
 
 
